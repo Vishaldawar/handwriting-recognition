@@ -2,7 +2,6 @@ from fastapi import FastAPI, File, UploadFile, Query, HTTPException, Form, Depen
 from typing import Optional, Dict
 import pandas as pd
 import numpy as np
-from fuzzywuzzy import process
 import io
 
 from strsimpy.normalized_levenshtein import NormalizedLevenshtein
@@ -13,10 +12,21 @@ import requests
 
 import cv2
 import pytesseract
+import uvicorn
 
 
 
-app = FastAPI()
+
+# app = FastAPI()
+app = FastAPI(
+    title="My API",
+    description="API for medicine name matching",
+    version="1.0",
+    docs_url="/docs",  # Explicitly setting Swagger UI URL
+    redoc_url="/redoc",  # Explicitly setting ReDoc URL
+    openapi_url="/openapi.json"  # Ensure OpenAPI is accessible
+)
+
 
 # Load the parquet file containing medicine names
 FILE = "./medicines.parquet"  
@@ -46,7 +56,6 @@ def extract_text_from_cv2(image_bytes):
     return extracted_text.strip()
 
 
-# @app.get("/match-medicine/")
 def match_medicine(query: str):
     """
     Finds the top 3 similar medicine names based on the input query.
@@ -57,33 +66,14 @@ def match_medicine(query: str):
         w1 = query
         for col in ['name','generic_name']:
             w2 = row[col]
-            simi = findSimilarity(w1, w2)
+            simi = findSimilarity(w1.lower(), w2.lower())
             all_simi.loc[len(all_simi)] = [w1, w2, simi]
+    all_simi = all_simi.drop_duplicates()
     matches = all_simi.sort_values('score',ascending=False).head(3)[['match','score']].values
     return [
         {"medicine": match[0], "similarity_score": np.round(match[1],3)}
         for match in matches
     ]
-
-# def get_form_data(
-#     query: Optional[str] = Form(None),
-#     file: Optional[UploadFile] = File(None)
-# ) -> Dict[str, Optional[str]]:
-#     """
-#     Extracts query or file from the request.
-#     Ensures at least one input (query or image) is provided.
-#     """
-#     if not query and not file:
-#         raise HTTPException(status_code=400, detail="Either text query or image file is required")
-    
-#     return {"query": query, "file": file}
-
-
-# async def match_text_or_image(query: Optional[str] = Form(None, description="Medicine name to match"),
-#     file: Optional[UploadFile] = File(None)):
-# async def match_text_or_image(query: str):
-# async def match_text_or_image(file: Optional[UploadFile] = File(None),
-#                               query: Optional[str] = Form(None, Description="medicine name to match")):
 
 @app.post("/match-text/")
 async def match_text(
@@ -103,7 +93,7 @@ async def match_image(
     file: UploadFile = File(...)
 ):
     """
-    Accepts either a text query or an image, extracts text if needed, 
+    Accepts an image, extracts text if needed, 
     and finds the closest matching medicines.
     """
     # Read image as bytes
@@ -114,4 +104,10 @@ async def match_image(
 
     # Find top matching medicines
     matches = match_medicine(query)
-    return {"transcribed_text": query, "matches": matches}
+    return {"transcribed_text":query, "matches":matches}
+
+## uvicorn main:app --reload
+
+ # at last, the bottom of the file/module
+# if __name__ == "__main__":
+#     uvicorn.run(app, host="127.0.0.1", port=8000)
